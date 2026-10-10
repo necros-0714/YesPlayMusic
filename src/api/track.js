@@ -48,7 +48,9 @@ export function getTrackDetail(ids) {
       return data;
     });
   };
-  fetchLatest();
+  // 缓存命中时后台刷新，未命中时复用同一个网络请求。
+  const latest = fetchLatest();
+  latest.catch(() => {});
 
   let idsInArray = [String(ids)];
   if (typeof ids === 'string') {
@@ -59,7 +61,7 @@ export function getTrackDetail(ids) {
     if (result) {
       result.songs = mapTrackPlayableStatus(result.songs, result.privileges);
     }
-    return result ?? fetchLatest();
+    return result ?? latest;
   });
 }
 

@@ -70,7 +70,7 @@ export default {
     state.settings.shortcuts = cloneDeep(shortcuts);
   },
   enableScrolling(state, status = null) {
-    state.enableScrolling = status ? status : !state.enableScrolling;
+    state.enableScrolling = status === null ? !state.enableScrolling : status;
   },
   updateTitle(state, title) {
     state.title = title;

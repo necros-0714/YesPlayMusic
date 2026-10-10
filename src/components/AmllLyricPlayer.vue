@@ -74,6 +74,10 @@ export default {
       type: Boolean,
       default: false,
     },
+    fps: {
+      type: Number,
+      default: 60,
+    },
     /** 目标歌词行的垂直对齐方式 */
     alignAnchor: {
       type: String,
@@ -128,6 +132,7 @@ export default {
       this.lineRevision += 1;
       this.wordLevel = hasWordLevelLines(lines);
       this.lastPushedTime = -1;
+      this.lastFrameTime = -1;
       // 让换歌后紧跟着的这一次 update 立刻写入变量，免得它还停在上一批歌词的进度上
       this.playerTimePending = PLAYER_TIME_WRITE_INTERVAL - 1;
       if (!this.player) return;
@@ -144,8 +149,12 @@ export default {
     },
     playing(playing) {
       if (!this.player) return;
+      this.lastFrameTime = -1;
       if (playing) this.player.resume();
       else this.player.pause();
+    },
+    fps() {
+      this.lastFrameTime = -1;
     },
     alignAnchor() {
       this.rebuildLayout();
@@ -279,8 +288,15 @@ export default {
       }
       const delta =
         this.lastFrameTime === -1 ? 0 : frameTime - this.lastFrameTime;
-      this.lastFrameTime = frameTime;
       const time = this.getCurrentTime();
+      // 高刷新率屏幕也按目标帧率更新；暂停时保留 15 FPS 响应拖动与滚动。
+      const interval = 1000 / (this.playing ? Math.max(1, this.fps) : 15);
+      const pausedSeek = !this.playing && time !== this.lastPushedTime;
+      if (this.lastFrameTime !== -1 && delta < interval - 1 && !pausedSeek) {
+        this.frameId = requestAnimationFrame(this.handleFrame);
+        return;
+      }
+      this.lastFrameTime = frameTime;
       const interlude =
         player.timelineController?.getSnapshot?.().activeInterlude;
       // 暂停时媒体时钟不动，进度没有变化就不必再推一次时间

@@ -29,6 +29,8 @@ db.version(1).stores({
 });
 
 let tracksCacheBytes = 0;
+let cacheGeneration = 0;
+const pendingDownloads = new Map();
 
 // 等待 settings 可用
 async function waitForSettingsReady(timeoutMs = 5000) {
@@ -52,39 +54,43 @@ async function initTracksCacheBytes() {
   if (!process.env.IS_ELECTRON) return;
   try {
     await waitForSettingsReady();
-    const all = await db.trackSources.toArray();
-    tracksCacheBytes = all.reduce(
-      (sum, t) => sum + (t?.source?.byteLength || 0),
-      0
-    );
+    // 用游标逐条统计，不让整个磁盘音频缓存同时常驻内存。
+    await countDBSize();
     console.debug(
       '[debug][db.js] initTracksCacheBytes, total bytes:',
       tracksCacheBytes
     );
-    deleteExcessCache();
+    await deleteExcessCache();
   } catch (err) {
     console.debug('[debug][db.js] initTracksCacheBytes failed', err);
   }
 }
 
 // 模块加载时触发初始化
-initTracksCacheBytes();
+const cacheReady = initTracksCacheBytes();
 
 async function deleteExcessCache() {
-  if (
-    store.state.settings.cacheLimit === false ||
-    tracksCacheBytes < store.state.settings.cacheLimit * Math.pow(1024, 2)
-  ) {
-    return;
-  }
   try {
-    const delCache = await db.trackSources.orderBy('createTime').first();
-    await db.trackSources.delete(delCache.id);
-    tracksCacheBytes -= delCache.source.byteLength;
-    console.debug(
-      `[debug][db.js] deleteExcessCacheSucces, track: ${delCache.name}, size: ${delCache.source.byteLength}, cacheSize:${tracksCacheBytes}`
-    );
-    deleteExcessCache();
+    // 事务串行化清理，避免并发下载重复删除或重复扣减同一条记录。
+    await db.transaction('rw', db.trackSources, async () => {
+      const limit = store.state.settings.cacheLimit;
+      if (limit === false || !Number.isFinite(Number(limit))) return;
+      const limitBytes = Math.max(0, Number(limit)) * 1024 * 1024;
+      while (tracksCacheBytes > limitBytes) {
+        const track = await db.trackSources.orderBy('createTime').first();
+        // 事务回调可能在取得写锁之前启动，等待查询期间其它清理已减少总量。
+        if (tracksCacheBytes <= limitBytes) break;
+        if (!track) {
+          tracksCacheBytes = 0;
+          break;
+        }
+        await db.trackSources.delete(track.id);
+        tracksCacheBytes = Math.max(
+          0,
+          tracksCacheBytes - track.source.byteLength
+        );
+      }
+    });
   } catch (error) {
     console.debug('[debug][db.js] deleteExcessCacheFailed', error);
   }
@@ -92,35 +98,53 @@ async function deleteExcessCache() {
 
 export function cacheTrackSource(trackInfo, url, bitRate, from = 'netease') {
   if (!process.env.IS_ELECTRON) return;
+  const id = Number(trackInfo.id);
+  if (pendingDownloads.has(id)) return pendingDownloads.get(id);
+  const generation = cacheGeneration;
+  const download = downloadTrackSource(
+    trackInfo,
+    url,
+    bitRate,
+    from,
+    generation
+  )
+    .catch(error => console.debug('[db] cache download failed', error))
+    .finally(() => pendingDownloads.delete(id));
+  pendingDownloads.set(id, download);
+  return download;
+}
+
+async function downloadTrackSource(trackInfo, url, bitRate, from, generation) {
+  await cacheReady;
   const name = trackInfo.name;
   const artist =
     (trackInfo.ar && trackInfo.ar[0]?.name) ||
     (trackInfo.artists && trackInfo.artists[0]?.name) ||
     'Unknown';
-  let cover = trackInfo.al.picUrl;
-  if (cover.slice(0, 5) !== 'https') {
-    cover = 'https' + cover.slice(4);
-  }
-  axios.get(`${cover}?param=512y512`);
-  axios.get(`${cover}?param=224y224`);
-  axios.get(`${cover}?param=1024y1024`);
+  // 封面由页面按需加载，缓存音频不再额外请求三种尺寸的封面。
   return axios
     .get(url, {
       responseType: 'arraybuffer',
     })
-    .then(response => {
-      db.trackSources.put({
-        id: trackInfo.id,
-        source: response.data,
-        bitRate,
-        from,
-        name,
-        artist,
-        createTime: new Date().getTime(),
+    .then(async response => {
+      await db.transaction('rw', db.trackSources, async () => {
+        if (generation !== cacheGeneration) return;
+        const id = Number(trackInfo.id);
+        const previous = await db.trackSources.get(id);
+        await db.trackSources.put({
+          id,
+          source: response.data,
+          bitRate,
+          from,
+          name,
+          artist,
+          createTime: new Date().getTime(),
+        });
+        tracksCacheBytes +=
+          response.data.byteLength - (previous?.source?.byteLength || 0);
       });
       console.debug(`[debug][db.js] cached track 👉 ${name} by ${artist}`);
-      tracksCacheBytes += response.data.byteLength;
-      deleteExcessCache();
+      await deleteExcessCache();
       return { trackID: trackInfo.id, source: response.data, bitRate };
     });
 }
@@ -135,6 +159,10 @@ export function getTrackSource(id) {
   });
 }
 
+export function hasTrackSource(id) {
+  return db.trackSources.where('id').equals(Number(id)).count().then(Boolean);
+}
+
 export function cacheTrackDetail(track, privileges) {
   db.trackDetail.put({
     id: track.id,
@@ -145,23 +173,18 @@ export function cacheTrackDetail(track, privileges) {
 }
 
 export function getTrackDetailFromCache(ids) {
-  return db.trackDetail
-    .filter(track => {
-      return ids.includes(String(track.id));
-    })
-    .toArray()
-    .then(tracks => {
-      const result = { songs: [], privileges: [] };
-      ids.map(id => {
-        const one = tracks.find(t => String(t.id) === id);
-        result.songs.push(one?.detail);
-        result.privileges.push(one?.privileges);
-      });
-      if (result.songs.includes(undefined)) {
-        return undefined;
-      }
-      return result;
+  return db.trackDetail.bulkGet(ids.map(Number)).then(tracks => {
+    const result = { songs: [], privileges: [] };
+    ids.map(id => {
+      const one = tracks.find(t => t && String(t.id) === String(id));
+      result.songs.push(one?.detail);
+      result.privileges.push(one?.privileges);
     });
+    if (result.songs.includes(undefined)) {
+      return undefined;
+    }
+    return result;
+  });
 }
 
 export function cacheLyric(id, lyrics) {
@@ -195,15 +218,17 @@ export function getAlbumFromCache(id) {
 }
 
 export function countDBSize() {
-  const trackSizes = [];
+  let bytes = 0;
+  let length = 0;
   return db.trackSources
     .each(track => {
-      trackSizes.push(track.source.byteLength);
+      bytes += track.source.byteLength;
+      length += 1;
     })
     .then(() => {
       const res = {
-        bytes: trackSizes.reduce((s1, s2) => s1 + s2, 0),
-        length: trackSizes.length,
+        bytes,
+        length,
       };
       tracksCacheBytes = res.bytes;
       console.debug(
@@ -214,10 +239,11 @@ export function countDBSize() {
 }
 
 export function clearDB() {
-  return new Promise(resolve => {
-    db.tables.forEach(function (table) {
-      table.clear();
-    });
-    resolve();
-  });
+  cacheGeneration += 1;
+  return cacheReady.then(() =>
+    db.transaction('rw', db.tables, async () => {
+      await Promise.all(db.tables.map(table => table.clear()));
+      tracksCacheBytes = 0;
+    })
+  );
 }
