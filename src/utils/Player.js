@@ -6,7 +6,7 @@ import { getPlaylistDetail, intelligencePlaylist } from '@/api/playlist';
 import { getLyric, getMP3, getTrackDetail, scrobble } from '@/api/track';
 import store from '@/store';
 import { isAccountLoggedIn } from '@/utils/auth';
-import { cacheTrackSource, getTrackSource } from '@/utils/db';
+import { cacheTrackSource, getTrackSource, hasTrackSource } from '@/utils/db';
 import { isCreateMpris, isCreateTray } from '@/utils/platform';
 import { Howl, Howler } from 'howler';
 import shuffle from 'lodash/shuffle';
@@ -39,6 +39,8 @@ const excludeSaveKeys = [
   '_playing',
   '_personalFMLoading',
   '_personalFMNextLoading',
+  '_progress',
+  'createdBlobRecords',
 ];
 
 function setTitle(track) {
@@ -251,7 +253,9 @@ export default class {
     // 这个定时器会覆盖之前改变的值，是bug
     setInterval(() => {
       if (this._howler === null) return;
-      this._progress = this._howler.seek();
+      const progress = this._howler.seek();
+      if (progress === this._progress) return;
+      this._progress = progress;
       localStorage.setItem('playerCurrentTrackTime', this._progress);
       if (isCreateMpris) {
         ipcRenderer?.send('playerCurrentTrackTime', this._progress);
@@ -379,7 +383,7 @@ export default class {
     // Clean up the previous object URLs since we've created a new one.
     // Revoke object URLs can release the memory taken by a Blob,
     // which occupied a large proportion of memory.
-    for (const url in this.createdBlobRecords) {
+    for (const url of this.createdBlobRecords) {
       URL.revokeObjectURL(url);
     }
 
@@ -413,7 +417,7 @@ export default class {
       });
     }
   }
-  async _getAudioSourceFromUnblockMusic(track) {
+  async _getAudioSourceFromUnblockMusic(track, prefetch = false) {
     console.debug(`[debug][Player.js] _getAudioSourceFromUnblockMusic`);
 
     if (
@@ -473,6 +477,9 @@ export default class {
     if (!retrieveSongInfo) {
       return null;
     }
+
+    // 预缓存只写磁盘，不创建下一首的 Blob，也不释放正在播放的 Blob。
+    if (prefetch) return retrieveSongInfo.url;
 
     if (retrieveSongInfo.source !== 'bilibili') {
       return retrieveSongInfo.url;
@@ -551,15 +558,21 @@ export default class {
     });
   }
   _cacheNextTrack() {
+    if (!store.state.settings.automaticallyCacheSongs) return;
     let nextTrackID = this._isPersonalFM
       ? this._personalFMNextTrack?.id ?? 0
       : this._getNextTrack()[0];
     if (!nextTrackID) return;
     if (this._personalFMTrack.id == nextTrackID) return;
-    getTrackDetail(nextTrackID).then(data => {
-      let track = data.songs[0];
-      this._getAudioSource(track);
-    });
+    hasTrackSource(nextTrackID)
+      .then(async cached => {
+        if (cached) return;
+        const data = await getTrackDetail(nextTrackID);
+        const track = data.songs[0];
+        const source = await this._getAudioSourceFromNetease(track);
+        if (!source) await this._getAudioSourceFromUnblockMusic(track, true);
+      })
+      .catch(error => console.debug('[Player] prefetch failed', error));
   }
   _loadSelfFromLocalStorage() {
     const player = JSON.parse(localStorage.getItem('player'));

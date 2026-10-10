@@ -1,0 +1,337 @@
+{
+  "date": "2026-10-10",
+  "method": "Direct portable EXE, independent user-data-dir, local silent WAV and 120-line word lyrics, 8 seconds per state. Original AMLL background; optimized energy-saving mode.",
+  "original": {
+    "mode": "original",
+    "playback": {
+      "playing": true,
+      "position": 10,
+      "lyricLines": 120
+    },
+    "closed": {
+      "lyrics": 1,
+      "canvas": 1,
+      "scrolling": true
+    },
+    "reopened": {
+      "lyrics": 1,
+      "lines": 120
+    },
+    "results": [
+      {
+        "name": "idle",
+        "seconds": 8,
+        "taskSeconds": 0.016248,
+        "scriptSeconds": 0.001499,
+        "styleSeconds": 0,
+        "layoutSeconds": 0,
+        "heapMiB": 8.898296356201172,
+        "workingSetMiB": 365.515625,
+        "privateBytesMiB": 319.44140625,
+        "processes": [
+          {
+            "type": "Browser",
+            "workingSetMiB": 111.9609375,
+            "privateBytesMiB": 134.83203125
+          },
+          {
+            "type": "GPU",
+            "workingSetMiB": 101.0234375,
+            "privateBytesMiB": 117.20703125
+          },
+          {
+            "type": "Utility",
+            "workingSetMiB": 47.30859375,
+            "privateBytesMiB": 13.66796875
+          },
+          {
+            "type": "Tab",
+            "workingSetMiB": 105.22265625,
+            "privateBytesMiB": 53.734375
+          }
+        ]
+      },
+      {
+        "name": "lyrics-playing",
+        "seconds": 8,
+        "taskSeconds": 6.076491,
+        "scriptSeconds": 0.465449,
+        "styleSeconds": 1.877952,
+        "layoutSeconds": 0.009086,
+        "heapMiB": 10.874691009521484,
+        "workingSetMiB": 575.22265625,
+        "privateBytesMiB": 553.17578125,
+        "processes": [
+          {
+            "type": "Browser",
+            "workingSetMiB": 115.13671875,
+            "privateBytesMiB": 136.25
+          },
+          {
+            "type": "GPU",
+            "workingSetMiB": 175.98828125,
+            "privateBytesMiB": 284.70703125
+          },
+          {
+            "type": "Utility",
+            "workingSetMiB": 47.35546875,
+            "privateBytesMiB": 13.6796875
+          },
+          {
+            "type": "Tab",
+            "workingSetMiB": 164.80078125,
+            "privateBytesMiB": 106.62109375
+          },
+          {
+            "type": "Utility",
+            "workingSetMiB": 71.94140625,
+            "privateBytesMiB": 11.91796875
+          }
+        ]
+      },
+      {
+        "name": "lyrics-paused",
+        "seconds": 8,
+        "taskSeconds": 2.205755,
+        "scriptSeconds": 0.537651,
+        "styleSeconds": 0.1089389999999999,
+        "layoutSeconds": 0,
+        "heapMiB": 15.400882720947266,
+        "workingSetMiB": 568.7109375,
+        "privateBytesMiB": 533.77734375,
+        "processes": [
+          {
+            "type": "Browser",
+            "workingSetMiB": 117.328125,
+            "privateBytesMiB": 138.19921875
+          },
+          {
+            "type": "GPU",
+            "workingSetMiB": 166.5546875,
+            "privateBytesMiB": 260.2734375
+          },
+          {
+            "type": "Utility",
+            "workingSetMiB": 47.39453125,
+            "privateBytesMiB": 13.66796875
+          },
+          {
+            "type": "Tab",
+            "workingSetMiB": 165.48046875,
+            "privateBytesMiB": 109.70703125
+          },
+          {
+            "type": "Utility",
+            "workingSetMiB": 71.953125,
+            "privateBytesMiB": 11.9296875
+          }
+        ]
+      },
+      {
+        "name": "lyrics-closed",
+        "seconds": 8,
+        "taskSeconds": 0.0025980000000007664,
+        "scriptSeconds": 0.0009570000000000967,
+        "styleSeconds": 0,
+        "layoutSeconds": 0,
+        "heapMiB": 16.32236099243164,
+        "workingSetMiB": 561.47265625,
+        "privateBytesMiB": 532.86328125,
+        "processes": [
+          {
+            "type": "Browser",
+            "workingSetMiB": 116.96484375,
+            "privateBytesMiB": 137.83203125
+          },
+          {
+            "type": "GPU",
+            "workingSetMiB": 164.02734375,
+            "privateBytesMiB": 264.08203125
+          },
+          {
+            "type": "Utility",
+            "workingSetMiB": 47.39453125,
+            "privateBytesMiB": 13.66796875
+          },
+          {
+            "type": "Tab",
+            "workingSetMiB": 161.11328125,
+            "privateBytesMiB": 105.38671875
+          },
+          {
+            "type": "Utility",
+            "workingSetMiB": 71.97265625,
+            "privateBytesMiB": 11.89453125
+          }
+        ]
+      }
+    ]
+  },
+  "optimized": {
+    "mode": "optimized",
+    "playback": {
+      "playing": true,
+      "position": 10,
+      "lyricLines": 120,
+      "mode": true
+    },
+    "closed": {
+      "lyrics": 0,
+      "canvas": 0,
+      "scrolling": true
+    },
+    "reopened": {
+      "lyrics": 1,
+      "lines": 120
+    },
+    "results": [
+      {
+        "name": "idle",
+        "seconds": 8,
+        "taskSeconds": 0.001047,
+        "scriptSeconds": 0.000093,
+        "styleSeconds": 0,
+        "layoutSeconds": 0,
+        "heapMiB": 7.455821990966797,
+        "workingSetMiB": 346.703125,
+        "privateBytesMiB": 298.8125,
+        "processes": [
+          {
+            "type": "Browser",
+            "workingSetMiB": 110.7109375,
+            "privateBytesMiB": 133.25390625
+          },
+          {
+            "type": "GPU",
+            "workingSetMiB": 98.2734375,
+            "privateBytesMiB": 111.2734375
+          },
+          {
+            "type": "Utility",
+            "workingSetMiB": 46.5390625,
+            "privateBytesMiB": 12.9921875
+          },
+          {
+            "type": "Tab",
+            "workingSetMiB": 91.1796875,
+            "privateBytesMiB": 41.29296875
+          }
+        ]
+      },
+      {
+        "name": "lyrics-playing",
+        "seconds": 8,
+        "taskSeconds": 3.441754,
+        "scriptSeconds": 0.175854,
+        "styleSeconds": 0.576578,
+        "layoutSeconds": 0.006714000000000001,
+        "heapMiB": 9.65573501586914,
+        "workingSetMiB": 515.83203125,
+        "privateBytesMiB": 438.234375,
+        "processes": [
+          {
+            "type": "Browser",
+            "workingSetMiB": 113.30078125,
+            "privateBytesMiB": 134.0859375
+          },
+          {
+            "type": "GPU",
+            "workingSetMiB": 148.0390625,
+            "privateBytesMiB": 197.75
+          },
+          {
+            "type": "Utility",
+            "workingSetMiB": 46.80859375,
+            "privateBytesMiB": 13.0703125
+          },
+          {
+            "type": "Tab",
+            "workingSetMiB": 137.078125,
+            "privateBytesMiB": 81.359375
+          },
+          {
+            "type": "Utility",
+            "workingSetMiB": 70.60546875,
+            "privateBytesMiB": 11.96875
+          }
+        ]
+      },
+      {
+        "name": "lyrics-paused",
+        "seconds": 8,
+        "taskSeconds": 1.3215910000000006,
+        "scriptSeconds": 0.07330199999999998,
+        "styleSeconds": 0.0579289999999999,
+        "layoutSeconds": 0,
+        "heapMiB": 8.542369842529297,
+        "workingSetMiB": 511.46484375,
+        "privateBytesMiB": 431.8984375,
+        "processes": [
+          {
+            "type": "Browser",
+            "workingSetMiB": 115.18359375,
+            "privateBytesMiB": 135.76953125
+          },
+          {
+            "type": "GPU",
+            "workingSetMiB": 142.765625,
+            "privateBytesMiB": 189.71484375
+          },
+          {
+            "type": "Utility",
+            "workingSetMiB": 46.80859375,
+            "privateBytesMiB": 13.0703125
+          },
+          {
+            "type": "Tab",
+            "workingSetMiB": 136.08984375,
+            "privateBytesMiB": 81.36328125
+          },
+          {
+            "type": "Utility",
+            "workingSetMiB": 70.6171875,
+            "privateBytesMiB": 11.98046875
+          }
+        ]
+      },
+      {
+        "name": "lyrics-closed",
+        "seconds": 8,
+        "taskSeconds": 0.0016089999999993054,
+        "scriptSeconds": 0.00020299999999995322,
+        "styleSeconds": 0,
+        "layoutSeconds": 0,
+        "heapMiB": 8.947368621826172,
+        "workingSetMiB": 505.01171875,
+        "privateBytesMiB": 437.57421875,
+        "processes": [
+          {
+            "type": "Browser",
+            "workingSetMiB": 115.38671875,
+            "privateBytesMiB": 135.8984375
+          },
+          {
+            "type": "GPU",
+            "workingSetMiB": 141.65234375,
+            "privateBytesMiB": 200.79296875
+          },
+          {
+            "type": "Utility",
+            "workingSetMiB": 46.80859375,
+            "privateBytesMiB": 13.0703125
+          },
+          {
+            "type": "Tab",
+            "workingSetMiB": 130.53515625,
+            "privateBytesMiB": 75.8671875
+          },
+          {
+            "type": "Utility",
+            "workingSetMiB": 70.62890625,
+            "privateBytesMiB": 11.9453125
+          }
+        ]
+      }
+    ]
+  }
+}

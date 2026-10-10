@@ -130,6 +130,8 @@ export default {
     searchFor: '搜索',
   },
   settings: {
+    lowResourceMode: '节能模式',
+    lowResourceModeDesc: '歌词 30 帧，关闭歌词模糊与动态背景。音质不变。',
     settings: '设置',
     logout: '登出',
     language: '语言',

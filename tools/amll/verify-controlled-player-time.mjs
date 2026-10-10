@@ -165,6 +165,7 @@ const PROPS = {
   timeSource: null,
   playing: false,
   disabled: false,
+  fps: 60,
   alignAnchor: 'center',
   alignPosition: 0.5,
   enableSpring: true,
@@ -302,7 +303,7 @@ check('歌词行缺少 words 字段时按普通歌词处理', () => {
   assert.equal(player.timeWrites().length, 0);
 });
 
-check('暂停且不在间奏：不再重复推送时间，但仍逐帧调用 update', () => {
+check('暂停且不在间奏：进度不变，按 15 FPS 重绘以响应滚动', () => {
   clock = 0;
   const { vm, player } = mountVm({
     lines: wordLines,
@@ -317,7 +318,8 @@ check('暂停且不在间奏：不再重复推送时间，但仍逐帧调用 upd
   assert.equal(player.countOf('setCurrentTime'), pushed, '进度没有变化');
   // 滚动与窗口尺寸变化只在 update → commitChanges → renderStyles 这条链路上写进 DOM，
   // 暂停期间跳过 update 会让歌词列表不再响应拖动
-  assert.equal(player.countOf('update'), updates + 30, 'update 仍要逐帧调用');
+  assert.ok(player.countOf('update') > updates, '暂停时仍然重绘');
+  assert.ok(player.countOf('update') <= updates + 8, '暂停时限制为 15 FPS');
   assert.ok(vm.playerTimePending < 2, '计数不应在暂停期间累积');
 });
 
@@ -362,7 +364,7 @@ check('暂停中拖动进度：恢复推送并重新同步间奏', () => {
   assert.equal(player.countOf('setCurrentTime'), pushes + 1);
 });
 
-check('暂停在间奏中：逐帧推进演出，但间奏重算只做一次', () => {
+check('暂停在间奏中：按 15 FPS 推进演出，间奏重算只做一次', () => {
   clock = 2000;
   const { vm, player } = mountVm({
     lines: wordLines,
@@ -375,11 +377,8 @@ check('暂停在间奏中：逐帧推进演出，但间奏重算只做一次', (
   vm.playing = false;
   frames(20, 32, 16, false);
   assert.equal(player.interludeDots.clears.length, 1);
-  assert.equal(
-    player.countOf('update'),
-    updates + 20,
-    '间奏里要逐帧推进圆点入场'
-  );
+  assert.ok(player.countOf('update') > updates, '间奏仍然更新');
+  assert.ok(player.countOf('update') <= updates + 6, '间奏限制为 15 FPS');
 });
 
 check('暂停在间奏中拖动进度：区间不变也要再重算一次', () => {
@@ -413,7 +412,7 @@ check('恢复播放后再次暂停进入间奏：记录被清空，重新同步�
   vm.playing = true;
   frames(3, 32, 16, false);
   vm.playing = false;
-  frames(3, 80, 16, false);
+  frames(3, 144, 16, false);
   assert.equal(player.interludeDots.clears.length, 2);
 });
 

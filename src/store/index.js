@@ -56,9 +56,11 @@ window
 let player = new Player();
 player = new Proxy(player, {
   set(target, prop, val) {
-    // console.log({ prop, val });
+    if (target[prop] === val) return true;
     target[prop] = val;
-    if (prop === '_howler') return true;
+    // 进度单独保存；音频对象与临时 Blob 不属于持久播放状态。
+    if (['_howler', '_progress', 'createdBlobRecords'].includes(prop))
+      return true;
     target.saveSelfToLocalStorage();
     target.sendSelfToIpcMain();
     return true;

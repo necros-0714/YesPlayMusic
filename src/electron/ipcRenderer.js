@@ -13,6 +13,10 @@ export function ipcRenderer(vueInstance) {
   // ipc message channel
   const electron = window.require('electron');
   const ipcRenderer = electron.ipcRenderer;
+  ipcRenderer.on('windowVisibility', (_event, visible) => {
+    self.nativeWindowVisible = visible;
+    self.handleVisibilityChange();
+  });
 
   // listens to the main process 'changeRouteTo' event and changes the route from
   // inside this Vue instance, according to what path the main process requires.

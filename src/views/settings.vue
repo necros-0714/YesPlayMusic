@@ -119,6 +119,25 @@
       <!-- <h3>音质</h3> -->
       <div class="item">
         <div class="left">
+          <div class="title">{{ $t('settings.lowResourceMode') }}</div>
+          <div class="description">{{
+            $t('settings.lowResourceModeDesc')
+          }}</div>
+        </div>
+        <div class="right">
+          <div class="toggle">
+            <input
+              id="low-resource-mode"
+              v-model="lowResourceMode"
+              type="checkbox"
+              name="low-resource-mode"
+            />
+            <label for="low-resource-mode"></label>
+          </div>
+        </div>
+      </div>
+      <div class="item">
+        <div class="left">
           <div class="title"> {{ $t('settings.musicQuality.text') }} </div>
         </div>
         <div class="right">
@@ -1298,6 +1317,14 @@ export default {
           key: 'showLyricsTime',
           value,
         });
+      },
+    },
+    lowResourceMode: {
+      get() {
+        return this.settings.lowResourceMode;
+      },
+      set(value) {
+        this.$store.commit('updateSettings', { key: 'lowResourceMode', value });
       },
     },
     enableOsdlyricsSupport: {

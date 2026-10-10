@@ -12,7 +12,9 @@
         "
         class="lyrics-background"
         :class="{
-          'dynamic-background': settings.lyricsBackground === 'dynamic',
+          'dynamic-background':
+            settings.lyricsBackground === 'dynamic' &&
+            !settings.lowResourceMode,
         }"
       >
         <div
@@ -30,7 +32,7 @@
         :style="{ background }"
       ></div>
       <AmllBackgroundRender
-        v-if="settings.lyricsBackground === 'amll'"
+        v-if="settings.lyricsBackground === 'amll' && !settings.lowResourceMode"
         :album="bgImageUrl"
         :playing="player.playing && showLyrics"
         :has-lyric="!noLyric"
@@ -244,10 +246,13 @@
               :time-source="getPlaybackTime"
               :playing="player.playing"
               :disabled="!showLyrics || noLyric"
+              :fps="settings.lowResourceMode ? 30 : 60"
               :font-size="Number(settings.lyricFontSize) || 28"
               :align-position="Number(settings.amllAlignPosition) || 0.5"
               :enable-spring="settings.amllEnableSpring"
-              :enable-blur="settings.amllEnableBlur"
+              :enable-blur="
+                settings.amllEnableBlur && !settings.lowResourceMode
+              "
               :enable-scale="settings.amllEnableScale"
               :hide-passed-lines="settings.amllHidePassedLines"
               @line-click="onLyricLineClick"
@@ -397,9 +402,11 @@ export default {
       this.getLyric();
       this.getCoverColor();
     },
-    showLyrics(show) {
-      // 歌词页面隐藏时停止滚动整个页面
-      this.$store.commit('enableScrolling', !show);
+    'settings.showLyricsTime'() {
+      this.initDate();
+    },
+    'settings.lyricsBackground'() {
+      this.getCoverColor();
     },
   },
   created() {
@@ -409,15 +416,8 @@ export default {
     this.getLyric();
     this.getCoverColor();
     this.initDate();
-    document.addEventListener('keydown', e => {
-      if (e.key === 'F11') {
-        e.preventDefault();
-        this.fullscreen();
-      }
-    });
-    document.addEventListener('fullscreenchange', () => {
-      this.isFullscreen = !!document.fullscreenElement;
-    });
+    document.addEventListener('keydown', this.handleFullscreenKey);
+    document.addEventListener('fullscreenchange', this.handleFullscreenChange);
   },
   beforeDestroy: function () {
     if (this.timer) {
@@ -425,16 +425,30 @@ export default {
     }
     // 组件销毁后到达的歌词结果没有可以提交的对象
     this.lyricRequestToken = 0;
+    document.removeEventListener('keydown', this.handleFullscreenKey);
+    document.removeEventListener(
+      'fullscreenchange',
+      this.handleFullscreenChange
+    );
   },
   methods: {
     ...mapMutations(['toggleLyrics', 'updateModal']),
     ...mapActions(['likeATrack']),
     initDate() {
-      var _this = this;
       clearInterval(this.timer);
-      this.timer = setInterval(function () {
-        _this.date = _this.formatTime(new Date());
+      if (!this.settings.showLyricsTime) return;
+      this.date = this.formatTime(new Date());
+      this.timer = setInterval(() => {
+        this.date = this.formatTime(new Date());
       }, 1000);
+    },
+    handleFullscreenKey(e) {
+      if (e.key !== 'F11') return;
+      e.preventDefault();
+      this.fullscreen();
+    },
+    handleFullscreenChange() {
+      this.isFullscreen = !!document.fullscreenElement;
     },
     formatTime(value) {
       let hour = value.getHours().toString();
@@ -528,7 +542,8 @@ export default {
       );
     },
     setLyric(lyric) {
-      this.lyric = lyric;
+      // 歌词只整批替换，避免 Vue 对每个音节建立响应式访问器。
+      this.lyric = Object.freeze(lyric);
       this.hasTranslation = lyric.some(line => Boolean(line.translatedLyric));
       this.hasRomanization = lyric.some(line => Boolean(line.romanLyric));
       this.lyricType =
@@ -586,15 +601,21 @@ export default {
     },
     getCoverColor() {
       if (this.settings.lyricsBackground !== true) return;
+      const trackID = this.currentTrack.id;
       const cover = this.currentTrack.al?.picUrl + '?param=256y256';
       Vibrant.from(cover, { colorCount: 1 })
         .getPalette()
         .then(palette => {
+          if (this._isDestroyed || trackID !== this.currentTrack.id) return;
+          if (!palette.DarkMuted) return;
           const originColor = Color.rgb(palette.DarkMuted._rgb);
           const color = originColor.darken(0.1).rgb().string();
           const color2 = originColor.lighten(0.28).rotate(-30).rgb().string();
           this.background = `linear-gradient(to top left, ${color}, ${color2})`;
-        });
+        })
+        .catch(error =>
+          console.debug('[lyrics] cover color unavailable', error)
+        );
     },
     hasList() {
       return hasListSource();

@@ -129,6 +129,9 @@ export default {
     searchFor: 'Search for',
   },
   settings: {
+    lowResourceMode: 'Energy saving mode',
+    lowResourceModeDesc:
+      '30 FPS lyrics, no lyric blur or animated background. Audio quality is unchanged.',
     settings: 'Settings',
     logout: 'LOGOUT',
     language: 'Languages',

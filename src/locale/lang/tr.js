@@ -124,6 +124,9 @@ export default {
     searchFor: 'Search for',
   },
   settings: {
+    lowResourceMode: 'Enerji tasarrufu modu',
+    lowResourceModeDesc:
+      '30 FPS şarkı sözleri, bulanıklık ve hareketli arka plan kapalı. Ses kalitesi değişmez.',
     settings: 'Ayarlar',
     logout: 'ÇIKIŞ YAP',
     language: 'Diller',

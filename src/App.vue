@@ -7,7 +7,7 @@
       :style="{ overflow: enableScrolling ? 'auto' : 'hidden' }"
       @scroll="handleScroll"
     >
-      <keep-alive>
+      <keep-alive :max="3">
         <router-view v-if="$route.meta.keepAlive"></router-view>
       </keep-alive>
       <router-view v-if="!$route.meta.keepAlive"></router-view>
@@ -19,7 +19,7 @@
     <ModalAddTrackToPlaylist v-if="isAccountLoggedIn" />
     <ModalNewPlaylist v-if="isAccountLoggedIn" />
     <transition v-if="enablePlayer" name="slide-up">
-      <Lyrics v-show="showLyrics" />
+      <Lyrics v-if="showLyrics && windowVisible" />
     </transition>
   </div>
 </template>
@@ -51,6 +51,8 @@ export default {
     return {
       isElectron: process.env.IS_ELECTRON, // true || undefined
       userSelectNone: false,
+      windowVisible: !document.hidden,
+      nativeWindowVisible: true,
     };
   },
   computed: {
@@ -76,12 +78,28 @@ export default {
       return this.$route.name !== 'lastfmCallback';
     },
   },
+  watch: {
+    showLyrics(show) {
+      this.$store.commit('enableScrolling', !show);
+    },
+  },
   created() {
     if (this.isElectron) ipcRenderer(this);
     window.addEventListener('keydown', this.handleKeydown);
+    document.addEventListener('visibilitychange', this.handleVisibilityChange);
     this.fetchData();
   },
+  beforeDestroy() {
+    window.removeEventListener('keydown', this.handleKeydown);
+    document.removeEventListener(
+      'visibilitychange',
+      this.handleVisibilityChange
+    );
+  },
   methods: {
+    handleVisibilityChange() {
+      this.windowVisible = this.nativeWindowVisible && !document.hidden;
+    },
     handleKeydown(e) {
       if (e.code === 'Space') {
         if (e.target.tagName === 'INPUT') return false;

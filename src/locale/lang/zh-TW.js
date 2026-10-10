@@ -126,6 +126,8 @@ export default {
     searchFor: '搜尋',
   },
   settings: {
+    lowResourceMode: '節能模式',
+    lowResourceModeDesc: '歌詞 30 幀，關閉歌詞模糊與動態背景。音質不變。',
     settings: '設定',
     logout: '登出',
     language: '語言',

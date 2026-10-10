@@ -1,0 +1,848 @@
+diff --git a/.dev/baseline/src/App.vue b/src/App.vue
+index 59392be..346f6fb 100644
+--- a/.dev/baseline/src/App.vue
++++ b/src/App.vue
+@@ -7,7 +7,7 @@
+       :style="{ overflow: enableScrolling ? 'auto' : 'hidden' }"
+       @scroll="handleScroll"
+     >
+-      <keep-alive>
++      <keep-alive :max="3">
+         <router-view v-if="$route.meta.keepAlive"></router-view>
+       </keep-alive>
+       <router-view v-if="!$route.meta.keepAlive"></router-view>
+@@ -19,7 +19,7 @@
+     <ModalAddTrackToPlaylist v-if="isAccountLoggedIn" />
+     <ModalNewPlaylist v-if="isAccountLoggedIn" />
+     <transition v-if="enablePlayer" name="slide-up">
+-      <Lyrics v-show="showLyrics" />
++      <Lyrics v-if="showLyrics && windowVisible" />
+     </transition>
+   </div>
+ </template>
+@@ -51,6 +51,8 @@ export default {
+     return {
+       isElectron: process.env.IS_ELECTRON, // true || undefined
+       userSelectNone: false,
++      windowVisible: !document.hidden,
++      nativeWindowVisible: true,
+     };
+   },
+   computed: {
+@@ -76,12 +78,28 @@ export default {
+       return this.$route.name !== 'lastfmCallback';
+     },
+   },
++  watch: {
++    showLyrics(show) {
++      this.$store.commit('enableScrolling', !show);
++    },
++  },
+   created() {
+     if (this.isElectron) ipcRenderer(this);
+     window.addEventListener('keydown', this.handleKeydown);
++    document.addEventListener('visibilitychange', this.handleVisibilityChange);
+     this.fetchData();
+   },
++  beforeDestroy() {
++    window.removeEventListener('keydown', this.handleKeydown);
++    document.removeEventListener(
++      'visibilitychange',
++      this.handleVisibilityChange
++    );
++  },
+   methods: {
++    handleVisibilityChange() {
++      this.windowVisible = this.nativeWindowVisible && !document.hidden;
++    },
+     handleKeydown(e) {
+       if (e.code === 'Space') {
+         if (e.target.tagName === 'INPUT') return false;
+diff --git a/.dev/baseline/src/api/track.js b/src/api/track.js
+index 0c06c26..872d266 100644
+--- a/.dev/baseline/src/api/track.js
++++ b/src/api/track.js
+@@ -48,7 +48,9 @@ export function getTrackDetail(ids) {
+       return data;
+     });
+   };
+-  fetchLatest();
++  // 缓存命中时后台刷新，未命中时复用同一个网络请求。
++  const latest = fetchLatest();
++  latest.catch(() => {});
+ 
+   let idsInArray = [String(ids)];
+   if (typeof ids === 'string') {
+@@ -59,7 +61,7 @@ export function getTrackDetail(ids) {
+     if (result) {
+       result.songs = mapTrackPlayableStatus(result.songs, result.privileges);
+     }
+-    return result ?? fetchLatest();
++    return result ?? latest;
+   });
+ }
+ 
+diff --git a/.dev/baseline/src/background.js b/src/background.js
+index 612f877..0f53726 100644
+--- a/.dev/baseline/src/background.js
++++ b/src/background.js
+@@ -33,6 +33,7 @@ import expressProxy from 'express-http-proxy';
+ import Store from 'electron-store';
+ import { createMpris, createDbus } from '@/electron/mpris';
+ import { spawn } from 'child_process';
++import pkg from '../package.json';
+ const clc = require('cli-color');
+ const log = text => {
+   console.log(`${clc.blueBright('[background.js]')} ${text}`);
+@@ -265,7 +266,8 @@ class Background {
+   }
+ 
+   checkForUpdates() {
+-    if (isDevelopment) return;
++    // 本地优化版不接收上游安装包覆盖。
++    if (isDevelopment || pkg.version.includes('optimized')) return;
+     log('checkForUpdates');
+     autoUpdater.checkForUpdatesAndNotify();
+ 
+@@ -294,6 +296,19 @@ class Background {
+   }
+ 
+   handleWindowEvents() {
++    // Win11 + Electron 13 最小化时 document.hidden 有时仍为 false，
++    // 使用原生窗口事件补充可见性，明确释放隐藏的歌词与图形资源。
++    const syncVisibility = () => {
++      if (!this.window || this.window.isDestroyed()) return;
++      this.window.webContents.send(
++        'windowVisibility',
++        this.window.isVisible() && !this.window.isMinimized()
++      );
++    };
++    for (const event of ['minimize', 'restore', 'hide', 'show']) {
++      this.window.on(event, syncVisibility);
++    }
++    this.window.webContents.on('did-finish-load', syncVisibility);
+     this.window.once('ready-to-show', () => {
+       log('window ready-to-show event');
+       this.window.show();
+@@ -477,7 +492,7 @@ class Background {
+     });
+ 
+     if (!isMac) {
+-      app.on('second-instance', (e, cl, wd) => {
++      app.on('second-instance', () => {
+         if (this.window) {
+           this.window.show();
+           if (this.window.isMinimized()) {
+diff --git a/.dev/baseline/src/components/AmllBackgroundRender.vue b/src/components/AmllBackgroundRender.vue
+index b4b1eff..79cda67 100644
+--- a/.dev/baseline/src/components/AmllBackgroundRender.vue
++++ b/src/components/AmllBackgroundRender.vue
+@@ -42,11 +42,6 @@ export default {
+       default: 0.5,
+     },
+   },
+-  data() {
+-    return {
+-      background: null,
+-    };
+-  },
+   watch: {
+     album(album) {
+       this.applyAlbum(album);
+@@ -69,6 +64,10 @@ export default {
+       this.background?.setRenderScale(scale);
+     },
+   },
++  created() {
++    // 图形渲染器无需响应式观察，避免 Vue 遍历 WebGL 内部状态。
++    this.background = null;
++  },
+   mounted() {
+     const background = BackgroundRender.new(MeshGradientRenderer);
+     this.background = background;
+@@ -92,7 +91,11 @@ export default {
+       // MeshGradientRenderer.setAlbum 内部已经吞掉封面拉取与解码的失败并打印错误，
+       // 但拿不到 2D 上下文或者图片尺寸为 0 时仍然会抛出，这个 Promise 因此可能变成
+       // rejected：异常继续向上传递，由调用方处理
+-      await this.background.setAlbum(album);
++      try {
++        await this.background.setAlbum(album);
++      } catch (error) {
++        console.debug('[AMLL] background album unavailable', error);
++      }
+     },
+   },
+ };
+diff --git a/.dev/baseline/src/components/AmllLyricPlayer.vue b/src/components/AmllLyricPlayer.vue
+index 8d56ab3..51fb497 100644
+--- a/.dev/baseline/src/components/AmllLyricPlayer.vue
++++ b/src/components/AmllLyricPlayer.vue
+@@ -74,6 +74,10 @@ export default {
+       type: Boolean,
+       default: false,
+     },
++    fps: {
++      type: Number,
++      default: 60,
++    },
+     /** 目标歌词行的垂直对齐方式 */
+     alignAnchor: {
+       type: String,
+@@ -128,6 +132,7 @@ export default {
+       this.lineRevision += 1;
+       this.wordLevel = hasWordLevelLines(lines);
+       this.lastPushedTime = -1;
++      this.lastFrameTime = -1;
+       // 让换歌后紧跟着的这一次 update 立刻写入变量，免得它还停在上一批歌词的进度上
+       this.playerTimePending = PLAYER_TIME_WRITE_INTERVAL - 1;
+       if (!this.player) return;
+@@ -144,9 +149,13 @@ export default {
+     },
+     playing(playing) {
+       if (!this.player) return;
++      this.lastFrameTime = -1;
+       if (playing) this.player.resume();
+       else this.player.pause();
+     },
++    fps() {
++      this.lastFrameTime = -1;
++    },
+     alignAnchor() {
+       this.rebuildLayout();
+     },
+@@ -279,8 +288,15 @@ export default {
+       }
+       const delta =
+         this.lastFrameTime === -1 ? 0 : frameTime - this.lastFrameTime;
+-      this.lastFrameTime = frameTime;
+       const time = this.getCurrentTime();
++      // 高刷新率屏幕也按目标帧率更新；暂停时保留 15 FPS 响应拖动与滚动。
++      const interval = 1000 / (this.playing ? Math.max(1, this.fps) : 15);
++      const pausedSeek = !this.playing && time !== this.lastPushedTime;
++      if (this.lastFrameTime !== -1 && delta < interval - 1 && !pausedSeek) {
++        this.frameId = requestAnimationFrame(this.handleFrame);
++        return;
++      }
++      this.lastFrameTime = frameTime;
+       const interlude =
+         player.timelineController?.getSnapshot?.().activeInterlude;
+       // 暂停时媒体时钟不动，进度没有变化就不必再推一次时间
+diff --git a/.dev/baseline/src/electron/ipcRenderer.js b/src/electron/ipcRenderer.js
+index ea8faf9..3cb8ca9 100644
+--- a/.dev/baseline/src/electron/ipcRenderer.js
++++ b/src/electron/ipcRenderer.js
+@@ -13,6 +13,10 @@ export function ipcRenderer(vueInstance) {
+   // ipc message channel
+   const electron = window.require('electron');
+   const ipcRenderer = electron.ipcRenderer;
++  ipcRenderer.on('windowVisibility', (_event, visible) => {
++    self.nativeWindowVisible = visible;
++    self.handleVisibilityChange();
++  });
+ 
+   // listens to the main process 'changeRouteTo' event and changes the route from
+   // inside this Vue instance, according to what path the main process requires.
+diff --git a/.dev/baseline/src/locale/lang/en.js b/src/locale/lang/en.js
+index bbe1b83..caeec96 100644
+--- a/.dev/baseline/src/locale/lang/en.js
++++ b/src/locale/lang/en.js
+@@ -129,6 +129,9 @@ export default {
+     searchFor: 'Search for',
+   },
+   settings: {
++    lowResourceMode: 'Energy saving mode',
++    lowResourceModeDesc:
++      '30 FPS lyrics, no lyric blur or animated background. Audio quality is unchanged.',
+     settings: 'Settings',
+     logout: 'LOGOUT',
+     language: 'Languages',
+diff --git a/.dev/baseline/src/locale/lang/tr.js b/src/locale/lang/tr.js
+index ae53c26..9705c48 100644
+--- a/.dev/baseline/src/locale/lang/tr.js
++++ b/src/locale/lang/tr.js
+@@ -124,6 +124,9 @@ export default {
+     searchFor: 'Search for',
+   },
+   settings: {
++    lowResourceMode: 'Enerji tasarrufu modu',
++    lowResourceModeDesc:
++      '30 FPS şarkı sözleri, bulanıklık ve hareketli arka plan kapalı. Ses kalitesi değişmez.',
+     settings: 'Ayarlar',
+     logout: 'ÇIKIŞ YAP',
+     language: 'Diller',
+diff --git a/.dev/baseline/src/locale/lang/zh-CN.js b/src/locale/lang/zh-CN.js
+index 629c58f..77de179 100644
+--- a/.dev/baseline/src/locale/lang/zh-CN.js
++++ b/src/locale/lang/zh-CN.js
+@@ -130,6 +130,8 @@ export default {
+     searchFor: '搜索',
+   },
+   settings: {
++    lowResourceMode: '节能模式',
++    lowResourceModeDesc: '歌词 30 帧，关闭歌词模糊与动态背景。音质不变。',
+     settings: '设置',
+     logout: '登出',
+     language: '语言',
+diff --git a/.dev/baseline/src/locale/lang/zh-TW.js b/src/locale/lang/zh-TW.js
+index fef9e5c..b7d5a97 100644
+--- a/.dev/baseline/src/locale/lang/zh-TW.js
++++ b/src/locale/lang/zh-TW.js
+@@ -126,6 +126,8 @@ export default {
+     searchFor: '搜尋',
+   },
+   settings: {
++    lowResourceMode: '節能模式',
++    lowResourceModeDesc: '歌詞 30 幀，關閉歌詞模糊與動態背景。音質不變。',
+     settings: '設定',
+     logout: '登出',
+     language: '語言',
+diff --git a/.dev/baseline/src/store/index.js b/src/store/index.js
+index ae44b1d..f748c8e 100644
+--- a/.dev/baseline/src/store/index.js
++++ b/src/store/index.js
+@@ -56,9 +56,11 @@ window
+ let player = new Player();
+ player = new Proxy(player, {
+   set(target, prop, val) {
+-    // console.log({ prop, val });
++    if (target[prop] === val) return true;
+     target[prop] = val;
+-    if (prop === '_howler') return true;
++    // 进度单独保存；音频对象与临时 Blob 不属于持久播放状态。
++    if (['_howler', '_progress', 'createdBlobRecords'].includes(prop))
++      return true;
+     target.saveSelfToLocalStorage();
+     target.sendSelfToIpcMain();
+     return true;
+diff --git a/.dev/baseline/src/store/initLocalStorage.js b/src/store/initLocalStorage.js
+index 3a9812e..8f5cc88 100644
+--- a/.dev/baseline/src/store/initLocalStorage.js
++++ b/src/store/initLocalStorage.js
+@@ -15,6 +15,7 @@ let localStorage = {
+     themeColor: 'default',
+     musicQuality: 320000,
+     lyricFontSize: 28,
++    lowResourceMode: true,
+     outputDevice: 'default',
+     showPlaylistsByAppleMusic: true,
+     enableUnblockNeteaseMusic: true,
+diff --git a/.dev/baseline/src/store/mutations.js b/src/store/mutations.js
+index d6a4b3b..cfdf398 100644
+--- a/.dev/baseline/src/store/mutations.js
++++ b/src/store/mutations.js
+@@ -70,7 +70,7 @@ export default {
+     state.settings.shortcuts = cloneDeep(shortcuts);
+   },
+   enableScrolling(state, status = null) {
+-    state.enableScrolling = status ? status : !state.enableScrolling;
++    state.enableScrolling = status === null ? !state.enableScrolling : status;
+   },
+   updateTitle(state, title) {
+     state.title = title;
+diff --git a/.dev/baseline/src/utils/Player.js b/src/utils/Player.js
+index a0073ec..67f1a35 100644
+--- a/.dev/baseline/src/utils/Player.js
++++ b/src/utils/Player.js
+@@ -6,7 +6,7 @@ import { getPlaylistDetail, intelligencePlaylist } from '@/api/playlist';
+ import { getLyric, getMP3, getTrackDetail, scrobble } from '@/api/track';
+ import store from '@/store';
+ import { isAccountLoggedIn } from '@/utils/auth';
+-import { cacheTrackSource, getTrackSource } from '@/utils/db';
++import { cacheTrackSource, getTrackSource, hasTrackSource } from '@/utils/db';
+ import { isCreateMpris, isCreateTray } from '@/utils/platform';
+ import { Howl, Howler } from 'howler';
+ import shuffle from 'lodash/shuffle';
+@@ -39,6 +39,8 @@ const excludeSaveKeys = [
+   '_playing',
+   '_personalFMLoading',
+   '_personalFMNextLoading',
++  '_progress',
++  'createdBlobRecords',
+ ];
+ 
+ function setTitle(track) {
+@@ -251,7 +253,9 @@ export default class {
+     // 这个定时器会覆盖之前改变的值，是bug
+     setInterval(() => {
+       if (this._howler === null) return;
+-      this._progress = this._howler.seek();
++      const progress = this._howler.seek();
++      if (progress === this._progress) return;
++      this._progress = progress;
+       localStorage.setItem('playerCurrentTrackTime', this._progress);
+       if (isCreateMpris) {
+         ipcRenderer?.send('playerCurrentTrackTime', this._progress);
+@@ -379,7 +383,7 @@ export default class {
+     // Clean up the previous object URLs since we've created a new one.
+     // Revoke object URLs can release the memory taken by a Blob,
+     // which occupied a large proportion of memory.
+-    for (const url in this.createdBlobRecords) {
++    for (const url of this.createdBlobRecords) {
+       URL.revokeObjectURL(url);
+     }
+ 
+@@ -413,7 +417,7 @@ export default class {
+       });
+     }
+   }
+-  async _getAudioSourceFromUnblockMusic(track) {
++  async _getAudioSourceFromUnblockMusic(track, prefetch = false) {
+     console.debug(`[debug][Player.js] _getAudioSourceFromUnblockMusic`);
+ 
+     if (
+@@ -474,6 +478,9 @@ export default class {
+       return null;
+     }
+ 
++    // 预缓存只写磁盘，不创建下一首的 Blob，也不释放正在播放的 Blob。
++    if (prefetch) return retrieveSongInfo.url;
++
+     if (retrieveSongInfo.source !== 'bilibili') {
+       return retrieveSongInfo.url;
+     }
+@@ -551,15 +558,21 @@ export default class {
+     });
+   }
+   _cacheNextTrack() {
++    if (!store.state.settings.automaticallyCacheSongs) return;
+     let nextTrackID = this._isPersonalFM
+       ? this._personalFMNextTrack?.id ?? 0
+       : this._getNextTrack()[0];
+     if (!nextTrackID) return;
+     if (this._personalFMTrack.id == nextTrackID) return;
+-    getTrackDetail(nextTrackID).then(data => {
+-      let track = data.songs[0];
+-      this._getAudioSource(track);
+-    });
++    hasTrackSource(nextTrackID)
++      .then(async cached => {
++        if (cached) return;
++        const data = await getTrackDetail(nextTrackID);
++        const track = data.songs[0];
++        const source = await this._getAudioSourceFromNetease(track);
++        if (!source) await this._getAudioSourceFromUnblockMusic(track, true);
++      })
++      .catch(error => console.debug('[Player] prefetch failed', error));
+   }
+   _loadSelfFromLocalStorage() {
+     const player = JSON.parse(localStorage.getItem('player'));
+diff --git a/.dev/baseline/src/utils/db.js b/src/utils/db.js
+index 6920815..cb2397a 100644
+--- a/.dev/baseline/src/utils/db.js
++++ b/src/utils/db.js
+@@ -29,6 +29,8 @@ db.version(1).stores({
+ });
+ 
+ let tracksCacheBytes = 0;
++let cacheGeneration = 0;
++const pendingDownloads = new Map();
+ 
+ // 等待 settings 可用
+ async function waitForSettingsReady(timeoutMs = 5000) {
+@@ -52,39 +54,43 @@ async function initTracksCacheBytes() {
+   if (!process.env.IS_ELECTRON) return;
+   try {
+     await waitForSettingsReady();
+-    const all = await db.trackSources.toArray();
+-    tracksCacheBytes = all.reduce(
+-      (sum, t) => sum + (t?.source?.byteLength || 0),
+-      0
+-    );
++    // 用游标逐条统计，不让整个磁盘音频缓存同时常驻内存。
++    await countDBSize();
+     console.debug(
+       '[debug][db.js] initTracksCacheBytes, total bytes:',
+       tracksCacheBytes
+     );
+-    deleteExcessCache();
++    await deleteExcessCache();
+   } catch (err) {
+     console.debug('[debug][db.js] initTracksCacheBytes failed', err);
+   }
+ }
+ 
+ // 模块加载时触发初始化
+-initTracksCacheBytes();
++const cacheReady = initTracksCacheBytes();
+ 
+ async function deleteExcessCache() {
+-  if (
+-    store.state.settings.cacheLimit === false ||
+-    tracksCacheBytes < store.state.settings.cacheLimit * Math.pow(1024, 2)
+-  ) {
+-    return;
+-  }
+   try {
+-    const delCache = await db.trackSources.orderBy('createTime').first();
+-    await db.trackSources.delete(delCache.id);
+-    tracksCacheBytes -= delCache.source.byteLength;
+-    console.debug(
+-      `[debug][db.js] deleteExcessCacheSucces, track: ${delCache.name}, size: ${delCache.source.byteLength}, cacheSize:${tracksCacheBytes}`
+-    );
+-    deleteExcessCache();
++    // 事务串行化清理，避免并发下载重复删除或重复扣减同一条记录。
++    await db.transaction('rw', db.trackSources, async () => {
++      const limit = store.state.settings.cacheLimit;
++      if (limit === false || !Number.isFinite(Number(limit))) return;
++      const limitBytes = Math.max(0, Number(limit)) * 1024 * 1024;
++      while (tracksCacheBytes > limitBytes) {
++        const track = await db.trackSources.orderBy('createTime').first();
++        // 事务回调可能在取得写锁之前启动，等待查询期间其它清理已减少总量。
++        if (tracksCacheBytes <= limitBytes) break;
++        if (!track) {
++          tracksCacheBytes = 0;
++          break;
++        }
++        await db.trackSources.delete(track.id);
++        tracksCacheBytes = Math.max(
++          0,
++          tracksCacheBytes - track.source.byteLength
++        );
++      }
++    });
+   } catch (error) {
+     console.debug('[debug][db.js] deleteExcessCacheFailed', error);
+   }
+@@ -92,35 +98,53 @@ async function deleteExcessCache() {
+ 
+ export function cacheTrackSource(trackInfo, url, bitRate, from = 'netease') {
+   if (!process.env.IS_ELECTRON) return;
++  const id = Number(trackInfo.id);
++  if (pendingDownloads.has(id)) return pendingDownloads.get(id);
++  const generation = cacheGeneration;
++  const download = downloadTrackSource(
++    trackInfo,
++    url,
++    bitRate,
++    from,
++    generation
++  )
++    .catch(error => console.debug('[db] cache download failed', error))
++    .finally(() => pendingDownloads.delete(id));
++  pendingDownloads.set(id, download);
++  return download;
++}
++
++async function downloadTrackSource(trackInfo, url, bitRate, from, generation) {
++  await cacheReady;
+   const name = trackInfo.name;
+   const artist =
+     (trackInfo.ar && trackInfo.ar[0]?.name) ||
+     (trackInfo.artists && trackInfo.artists[0]?.name) ||
+     'Unknown';
+-  let cover = trackInfo.al.picUrl;
+-  if (cover.slice(0, 5) !== 'https') {
+-    cover = 'https' + cover.slice(4);
+-  }
+-  axios.get(`${cover}?param=512y512`);
+-  axios.get(`${cover}?param=224y224`);
+-  axios.get(`${cover}?param=1024y1024`);
++  // 封面由页面按需加载，缓存音频不再额外请求三种尺寸的封面。
+   return axios
+     .get(url, {
+       responseType: 'arraybuffer',
+     })
+-    .then(response => {
+-      db.trackSources.put({
+-        id: trackInfo.id,
+-        source: response.data,
+-        bitRate,
+-        from,
+-        name,
+-        artist,
+-        createTime: new Date().getTime(),
++    .then(async response => {
++      await db.transaction('rw', db.trackSources, async () => {
++        if (generation !== cacheGeneration) return;
++        const id = Number(trackInfo.id);
++        const previous = await db.trackSources.get(id);
++        await db.trackSources.put({
++          id,
++          source: response.data,
++          bitRate,
++          from,
++          name,
++          artist,
++          createTime: new Date().getTime(),
++        });
++        tracksCacheBytes +=
++          response.data.byteLength - (previous?.source?.byteLength || 0);
+       });
+       console.debug(`[debug][db.js] cached track 👉 ${name} by ${artist}`);
+-      tracksCacheBytes += response.data.byteLength;
+-      deleteExcessCache();
++      await deleteExcessCache();
+       return { trackID: trackInfo.id, source: response.data, bitRate };
+     });
+ }
+@@ -135,6 +159,10 @@ export function getTrackSource(id) {
+   });
+ }
+ 
++export function hasTrackSource(id) {
++  return db.trackSources.where('id').equals(Number(id)).count().then(Boolean);
++}
++
+ export function cacheTrackDetail(track, privileges) {
+   db.trackDetail.put({
+     id: track.id,
+@@ -145,23 +173,18 @@ export function cacheTrackDetail(track, privileges) {
+ }
+ 
+ export function getTrackDetailFromCache(ids) {
+-  return db.trackDetail
+-    .filter(track => {
+-      return ids.includes(String(track.id));
+-    })
+-    .toArray()
+-    .then(tracks => {
+-      const result = { songs: [], privileges: [] };
+-      ids.map(id => {
+-        const one = tracks.find(t => String(t.id) === id);
+-        result.songs.push(one?.detail);
+-        result.privileges.push(one?.privileges);
+-      });
+-      if (result.songs.includes(undefined)) {
+-        return undefined;
+-      }
+-      return result;
++  return db.trackDetail.bulkGet(ids.map(Number)).then(tracks => {
++    const result = { songs: [], privileges: [] };
++    ids.map(id => {
++      const one = tracks.find(t => t && String(t.id) === String(id));
++      result.songs.push(one?.detail);
++      result.privileges.push(one?.privileges);
+     });
++    if (result.songs.includes(undefined)) {
++      return undefined;
++    }
++    return result;
++  });
+ }
+ 
+ export function cacheLyric(id, lyrics) {
+@@ -195,15 +218,17 @@ export function getAlbumFromCache(id) {
+ }
+ 
+ export function countDBSize() {
+-  const trackSizes = [];
++  let bytes = 0;
++  let length = 0;
+   return db.trackSources
+     .each(track => {
+-      trackSizes.push(track.source.byteLength);
++      bytes += track.source.byteLength;
++      length += 1;
+     })
+     .then(() => {
+       const res = {
+-        bytes: trackSizes.reduce((s1, s2) => s1 + s2, 0),
+-        length: trackSizes.length,
++        bytes,
++        length,
+       };
+       tracksCacheBytes = res.bytes;
+       console.debug(
+@@ -214,10 +239,11 @@ export function countDBSize() {
+ }
+ 
+ export function clearDB() {
+-  return new Promise(resolve => {
+-    db.tables.forEach(function (table) {
+-      table.clear();
+-    });
+-    resolve();
+-  });
++  cacheGeneration += 1;
++  return cacheReady.then(() =>
++    db.transaction('rw', db.tables, async () => {
++      await Promise.all(db.tables.map(table => table.clear()));
++      tracksCacheBytes = 0;
++    })
++  );
+ }
+diff --git a/.dev/baseline/src/views/lyrics.vue b/src/views/lyrics.vue
+index 92056e2..d1852a4 100644
+--- a/.dev/baseline/src/views/lyrics.vue
++++ b/src/views/lyrics.vue
+@@ -12,7 +12,9 @@
+         "
+         class="lyrics-background"
+         :class="{
+-          'dynamic-background': settings.lyricsBackground === 'dynamic',
++          'dynamic-background':
++            settings.lyricsBackground === 'dynamic' &&
++            !settings.lowResourceMode,
+         }"
+       >
+         <div
+@@ -30,7 +32,7 @@
+         :style="{ background }"
+       ></div>
+       <AmllBackgroundRender
+-        v-if="settings.lyricsBackground === 'amll'"
++        v-if="settings.lyricsBackground === 'amll' && !settings.lowResourceMode"
+         :album="bgImageUrl"
+         :playing="player.playing && showLyrics"
+         :has-lyric="!noLyric"
+@@ -244,10 +246,13 @@
+               :time-source="getPlaybackTime"
+               :playing="player.playing"
+               :disabled="!showLyrics || noLyric"
++              :fps="settings.lowResourceMode ? 30 : 60"
+               :font-size="Number(settings.lyricFontSize) || 28"
+               :align-position="Number(settings.amllAlignPosition) || 0.5"
+               :enable-spring="settings.amllEnableSpring"
+-              :enable-blur="settings.amllEnableBlur"
++              :enable-blur="
++                settings.amllEnableBlur && !settings.lowResourceMode
++              "
+               :enable-scale="settings.amllEnableScale"
+               :hide-passed-lines="settings.amllHidePassedLines"
+               @line-click="onLyricLineClick"
+@@ -397,9 +402,11 @@ export default {
+       this.getLyric();
+       this.getCoverColor();
+     },
+-    showLyrics(show) {
+-      // 歌词页面隐藏时停止滚动整个页面
+-      this.$store.commit('enableScrolling', !show);
++    'settings.showLyricsTime'() {
++      this.initDate();
++    },
++    'settings.lyricsBackground'() {
++      this.getCoverColor();
+     },
+   },
+   created() {
+@@ -409,15 +416,8 @@ export default {
+     this.getLyric();
+     this.getCoverColor();
+     this.initDate();
+-    document.addEventListener('keydown', e => {
+-      if (e.key === 'F11') {
+-        e.preventDefault();
+-        this.fullscreen();
+-      }
+-    });
+-    document.addEventListener('fullscreenchange', () => {
+-      this.isFullscreen = !!document.fullscreenElement;
+-    });
++    document.addEventListener('keydown', this.handleFullscreenKey);
++    document.addEventListener('fullscreenchange', this.handleFullscreenChange);
+   },
+   beforeDestroy: function () {
+     if (this.timer) {
+@@ -425,17 +425,31 @@ export default {
+     }
+     // 组件销毁后到达的歌词结果没有可以提交的对象
+     this.lyricRequestToken = 0;
++    document.removeEventListener('keydown', this.handleFullscreenKey);
++    document.removeEventListener(
++      'fullscreenchange',
++      this.handleFullscreenChange
++    );
+   },
+   methods: {
+     ...mapMutations(['toggleLyrics', 'updateModal']),
+     ...mapActions(['likeATrack']),
+     initDate() {
+-      var _this = this;
+       clearInterval(this.timer);
+-      this.timer = setInterval(function () {
+-        _this.date = _this.formatTime(new Date());
++      if (!this.settings.showLyricsTime) return;
++      this.date = this.formatTime(new Date());
++      this.timer = setInterval(() => {
++        this.date = this.formatTime(new Date());
+       }, 1000);
+     },
++    handleFullscreenKey(e) {
++      if (e.key !== 'F11') return;
++      e.preventDefault();
++      this.fullscreen();
++    },
++    handleFullscreenChange() {
++      this.isFullscreen = !!document.fullscreenElement;
++    },
+     formatTime(value) {
+       let hour = value.getHours().toString();
+       let minute = value.getMinutes().toString();
+@@ -528,7 +542,8 @@ export default {
+       );
+     },
+     setLyric(lyric) {
+-      this.lyric = lyric;
++      // 歌词只整批替换，避免 Vue 对每个音节建立响应式访问器。
++      this.lyric = Object.freeze(lyric);
+       this.hasTranslation = lyric.some(line => Boolean(line.translatedLyric));
+       this.hasRomanization = lyric.some(line => Boolean(line.romanLyric));
+       this.lyricType =
+@@ -586,15 +601,21 @@ export default {
+     },
+     getCoverColor() {
+       if (this.settings.lyricsBackground !== true) return;
++      const trackID = this.currentTrack.id;
+       const cover = this.currentTrack.al?.picUrl + '?param=256y256';
+       Vibrant.from(cover, { colorCount: 1 })
+         .getPalette()
+         .then(palette => {
++          if (this._isDestroyed || trackID !== this.currentTrack.id) return;
++          if (!palette.DarkMuted) return;
+           const originColor = Color.rgb(palette.DarkMuted._rgb);
+           const color = originColor.darken(0.1).rgb().string();
+           const color2 = originColor.lighten(0.28).rotate(-30).rgb().string();
+           this.background = `linear-gradient(to top left, ${color}, ${color2})`;
+-        });
++        })
++        .catch(error =>
++          console.debug('[lyrics] cover color unavailable', error)
++        );
+     },
+     hasList() {
+       return hasListSource();
+diff --git a/.dev/baseline/src/views/settings.vue b/src/views/settings.vue
+index 4af063c..960f78f 100644
+--- a/.dev/baseline/src/views/settings.vue
++++ b/src/views/settings.vue
+@@ -117,6 +117,25 @@
+       </div>
+ 
+       <!-- <h3>音质</h3> -->
++      <div class="item">
++        <div class="left">
++          <div class="title">{{ $t('settings.lowResourceMode') }}</div>
++          <div class="description">{{
++            $t('settings.lowResourceModeDesc')
++          }}</div>
++        </div>
++        <div class="right">
++          <div class="toggle">
++            <input
++              id="low-resource-mode"
++              v-model="lowResourceMode"
++              type="checkbox"
++              name="low-resource-mode"
++            />
++            <label for="low-resource-mode"></label>
++          </div>
++        </div>
++      </div>
+       <div class="item">
+         <div class="left">
+           <div class="title"> {{ $t('settings.musicQuality.text') }} </div>
+@@ -1300,6 +1319,14 @@ export default {
+         });
+       },
+     },
++    lowResourceMode: {
++      get() {
++        return this.settings.lowResourceMode;
++      },
++      set(value) {
++        this.$store.commit('updateSettings', { key: 'lowResourceMode', value });
++      },
++    },
+     enableOsdlyricsSupport: {
+       get() {
+         return this.settings.enableOsdlyricsSupport;

@@ -131,19 +131,15 @@ module.exports = {
       nodeIntegration: true,
       externals: ['@unblockneteasemusic/rust-napi'],
       builderOptions: {
+        ...(process.env.ELECTRON_DIST
+          ? { electronDist: process.env.ELECTRON_DIST }
+          : {}),
         productName: 'YesPlayMusic',
         copyright: 'Copyright © YesPlayMusic',
         // compression: "maximum", // 机器好的可以打开，配置压缩，开启后会让 .AppImage 格式的客户端启动缓慢
         asar: true,
-        publish: [
-          {
-            provider: 'github',
-            owner: 'a-M1NG',
-            repo: 'YesPlayMusic',
-            vPrefixedTagName: true,
-            releaseType: 'draft',
-          },
-        ],
+        // 本地构建仅生成安装包，不生成上游自动更新信息。
+        publish: [],
         directories: {
           output: 'dist_electron',
         },
@@ -173,7 +169,6 @@ module.exports = {
           ],
           publisherName: 'YesPlayMusic',
           icon: 'build/icons/icon.ico',
-          publish: ['github'],
         },
         linux: {
           target: [
@@ -209,9 +204,13 @@ module.exports = {
           icon: 'build/icons/icon.icns',
         },
         nsis: {
+          artifactName: '${productName}-${version}-${arch}-Setup.${ext}',
           oneClick: true,
           perMachine: true,
           deleteAppDataOnUninstall: true,
+        },
+        portable: {
+          artifactName: '${productName}-${version}-${arch}-portable.${ext}',
         },
       },
       // 主线程的配置文件

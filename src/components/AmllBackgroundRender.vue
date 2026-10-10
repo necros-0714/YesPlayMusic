@@ -42,11 +42,6 @@ export default {
       default: 0.5,
     },
   },
-  data() {
-    return {
-      background: null,
-    };
-  },
   watch: {
     album(album) {
       this.applyAlbum(album);
@@ -68,6 +63,10 @@ export default {
     renderScale(scale) {
       this.background?.setRenderScale(scale);
     },
+  },
+  created() {
+    // 图形渲染器无需响应式观察，避免 Vue 遍历 WebGL 内部状态。
+    this.background = null;
   },
   mounted() {
     const background = BackgroundRender.new(MeshGradientRenderer);
@@ -92,7 +91,11 @@ export default {
       // MeshGradientRenderer.setAlbum 内部已经吞掉封面拉取与解码的失败并打印错误，
       // 但拿不到 2D 上下文或者图片尺寸为 0 时仍然会抛出，这个 Promise 因此可能变成
       // rejected：异常继续向上传递，由调用方处理
-      await this.background.setAlbum(album);
+      try {
+        await this.background.setAlbum(album);
+      } catch (error) {
+        console.debug('[AMLL] background album unavailable', error);
+      }
     },
   },
 };
